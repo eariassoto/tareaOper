@@ -25,10 +25,10 @@ char* get_time(){
 // se sabe que si sem_cont es positivo es un signal y en caso
 // de que sea negativo es un wait
 int sem_op(int sem_id, int nsem, struct sembuf operations[1], int sem_cont){
-    operations[0].sem_num = 0;
+    operations[0].sem_num = nsem;
     operations[0].sem_op = sem_cont;
     operations[0].sem_flg = 0;
-    int retval = semop(sem_id, operations, nsem);
+    int retval = semop(sem_id, operations, 1);
     return retval;
 }
 
@@ -62,6 +62,7 @@ int main(){
    if(semctl(sem_id, 0, SETVAL, argument) < 0){
       printf("Error al inicializar el contador del semaforo.\n");
       perror("RAZON");
+      exit(-1);
    }else{
       printf("Inicializado el semaforo %d. %s\n", sem_id, get_time());
    }
@@ -84,19 +85,21 @@ int main(){
     int retval;
     while(1){
       sleep(1); // 1 segundo entre cada envio para notar los cambios
-      retval = sem_op(sem_id, 1, operations, 1);
-      if(retval == 0){
 
-        msg_buffer.mtype = MTYPE;
-        sprintf (msg_buffer.mtext, "%s\n", "Hola Mundo! :)");
-        retval = msgsnd(msg_id, &msg_buffer, sizeof(msg_buffer.mtext), 0); 
-        if (retval == -1) {
-          perror("ERROR");
-        }
+      msg_buffer.mtype = MTYPE;
+      sprintf (msg_buffer.mtext, "%s\n", "Hola Mundo! :)");
+      retval = msgsnd(msg_id, &msg_buffer, sizeof(msg_buffer.mtext), 0); 
 
+      if (retval == -1) {
+        perror("ERROR");
       }else{
-        printf("Error al realizar el signal.\n");
-        perror("RAZON");
+
+        retval = sem_op(sem_id, 0, operations, 1); // signal
+        if(retval < 0){
+          printf("Error al realizar el signal.\n");
+          perror("RAZON");
+        } 
+
       }
     }
 
@@ -104,7 +107,7 @@ int main(){
     //printf("Luke, I'm your father\n");
     int retval;
     while(1){
-      retval = sem_op(sem_id, 1, operations, -1);
+      retval = sem_op(sem_id, 0, operations, -1); // wait 
       if(retval == 0){
 
         retval = msgrcv(msg_id, &msg_buffer, sizeof(msg_buffer.mtext), MTYPE, IPC_NOWAIT);
@@ -121,7 +124,6 @@ int main(){
     }
 
    }
-
    return 0;
 }
 
