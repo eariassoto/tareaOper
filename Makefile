@@ -1,4 +1,4 @@
 go:
 	clear
-	gcc tarea.c -o tarea
+	g++ -std=c++11 tarea.cpp -o tarea
 	./tarea

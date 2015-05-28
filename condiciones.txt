@@ -1,0 +1,3 @@
+name LIKE 'A%'
+a < 3200
+AVG(grades) > 7

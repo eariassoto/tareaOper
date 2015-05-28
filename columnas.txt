@@ -1,0 +1,7 @@
+Name, Salary
+Hours, Department
+Name, FName, LName
+ClassID, ProfID
+Salary
+Price, ScanCode
+NumberFile, typeFile
