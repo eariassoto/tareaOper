@@ -3,6 +3,7 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <random>
 
 #include <sys/types.h>
 #include <sys/ipc.h>
@@ -25,17 +26,29 @@
 #define SEMAFORO_CONTADOR_PROCES 4
 
 // duracion maxima del programa
-#define MAX_SEGUNDOS 2
-#define DORMIR 500
+#define MAX_SEGUNDOS 4
+#define DORMIR 50
 	
 using namespace std;
 
+
+/*
+* Genera un numero aleatorio n y devuelve
+* la enesima posicion en el vector de palabras
+* enviado por parametro 
+*/
 string random_word(vector<string> v){
-	srand(time(NULL));
-	int r = rand()%v.size();
-	return string(v.at(r));
+	random_device rd;
+    mt19937 mt(rd());
+    uniform_real_distribution<double> dist(0, v.size());
+
+	return string(v.at( dist(mt) ));
 }
 
+/*
+* Arma una consulta usando palabras aleatorias de una
+* piscina de palabras previamente cargadas
+*/
 string generar_consulta(vector<string> x, vector<string> y, vector<string> z){
 	
 	string select("SELECT ");
@@ -45,6 +58,10 @@ string generar_consulta(vector<string> x, vector<string> y, vector<string> z){
 	return res;
 }
 
+/*
+* Reconoce los componentes de la consulta y los ama
+* en otra hilera que se le va a mostrar al usuario
+*/
 string convertir_consulta(char c[MSIZE]){
 	string consulta(c);
 
@@ -89,7 +106,6 @@ int sem_op(int sem_id, int nsem, struct sembuf oper[1], int sem_cont, int sflag=
     return retval;
 }
 
-
 /*
 * loop principal: en este main primero se va a inicializar
 * las estructuras que necesitamos (semaforos, colas, shm etc)
@@ -105,9 +121,9 @@ int sem_op(int sem_id, int nsem, struct sembuf oper[1], int sem_cont, int sflag=
 * de mensajes, lo va a reinterpretar y lo va a mandar a impresion por medio de
 * semaforos y memoria compartida.
 *
-* Cuando al proceso generador de consultas se le acabe el tiempo este va a indicarle
-* a la impresora que espere a que los procesos parsers acaben y luego cierre los recursos
-* que hemos abierto (sem, colas, shm) y con esto termina la ejecucion del programa
+* Cuando al proceso generador de consultas se le acabe el tiempo este va esperar a
+* que todos los procesos hijos hayan acabado de ejecutar las impresiones y luego
+* procede a darle la señal a la impresora para que termine, luego libera todos los recursos
 */
 int main(){
 
@@ -119,6 +135,8 @@ int main(){
 	vector<string> palabrasy;
 	vector<string> palabrasz;
 
+	// leo de archivos las palabras que se usaran
+	// aleatoriamente
 	while (getline(archivox, line))
 		palabrasx.push_back(line);
 
@@ -146,7 +164,10 @@ int main(){
 	El semaforo de nueva impresion empieza en cero porque al menos un parser
 	debe "despertar la impresora" por medio de un signal.
 
-	El semaforo contador de procesos inicia el cero por razones obvias.
+	El semaforo contador de procesos inicia en cero por razones obvias.
+
+	El semaforo de impresora libre empieza en cero porque luego de la primera
+	impresion la misma se libera
 	*/
 	argument.val = 0;
 
@@ -194,12 +215,14 @@ int main(){
 	}
 
 	/*
+
 	La primera cola de mensajes funciona para colocar la consulta que
 	le voy a dar al nuevo proceso parser.
 
 	La segunda solo sirve para indicarle al proceso impresor que ya no van
 	a llegar nuevos parsers y que espere a que los parsers mueran para
 	liberar los recursos.
+
 	*/
 	int msg_id = msgget(IPC_PRIVATE, PERM|IPC_CREAT|IPC_EXCL);
 	if(msg_id < 0){
@@ -239,6 +262,7 @@ int main(){
 	struct sembuf oper_mandar[1], oper_shm[1], oper_contador[1], oper_libre[1],oper_impre[1];
 
 	int bifurcacionPrimaria = fork();
+
 	if(bifurcacionPrimaria){
 		// proceso padre
 		// este es el generador de consultas
@@ -253,18 +277,19 @@ int main(){
 		int retval;
 
 		while(time(0) < limite){
+			// Proceso generador de consultas
+
 			// tiempo de espera entre consulta y consulta
 			this_thread::sleep_for(chrono::milliseconds(DORMIR));
 
-			// generador de consultas
-
 			string nuevaConsulta = generar_consulta(palabrasx, palabrasy, palabrasz);
+			
+			// copio el string al arreglo de caracteres del struct
 			nuevaConsulta.copy( msg_buffer.mtext, nuevaConsulta.size() );
-
+			
+			// envio el mensaje para el hijo
 			msg_buffer.mtype = MTYPE;
-
 			retval = msgsnd(msg_id, &msg_buffer, sizeof(msg_buffer.mtext), 0);
-
 			if (retval == -1) {
 				cout << "Error al enviar el mensaje a la cola" << endl;
 				perror("ERROR");
@@ -277,8 +302,9 @@ int main(){
 			int f = fork();
 			if(f == 0){
 
-				// tipo procesos 2: parsers de mensajes
+				// proceso parsers de mensajes
 
+				// se conecta a la memoria compartida
 				char *shared_memory =(char*)shmat(shm_id,0,0);
 				if(shared_memory == (void*)-1){
 					cout << "Error al conectarse a la memoria compartida (parser)." << endl;
@@ -295,14 +321,11 @@ int main(){
 					return -1;
 				}else{
 
-					// convertidor de la consulta
+					// convierte la consulta
 					string consulta = convertir_consulta(msg_buffer.mtext);
 
-					// hago una wait a ver si la impresora esta libre
-					// pd. el semaforo comienza con 1 permiso porque
-					// al inicio nadie la esta usando
-					// con esto nos aseguramos que el uso de la impresora
-					// sea exclusivo
+					// primero espero a la exclusividad de los procesos
+					// de la impresora y luego ya puedo interactuar con ella
 					retval = sem_op(sem_id, SEMAFORO_MUTEX_IMPRESORA, oper_impre, -1);
 					
 					retval = sem_op(sem_id, SEMAFORO_MUTEX_SHM, oper_shm, -1); // wait shm
@@ -315,8 +338,10 @@ int main(){
 					retval = sem_op(sem_id, SEMAFORO_MANDAR_IMPRIMIR, oper_mandar, 1);
 					retval = sem_op(sem_id, SEMAFORO_IMPRESORA_LIBRE, oper_mandar, -1);
 
+					// libero la exclusividad de la impresora
 					retval = sem_op(sem_id, SEMAFORO_MUTEX_IMPRESORA, oper_impre, 1);
 
+					// antes de irme le resto uno al contador de procesos
 					retval = sem_op(sem_id, SEMAFORO_CONTADOR_PROCES, oper_contador, -1);
 
 					return 0;
@@ -326,16 +351,16 @@ int main(){
 			}
 		} //fin while
 
+		// espero a que todos los procesos parser mueran
 		retval = sem_op(sem_id, SEMAFORO_CONTADOR_PROCES, oper_contador, 0);
 
-		retval = sem_op(sem_id, SEMAFORO_MUTEX_IMPRESORA, oper_libre, -1);
 		// cuando no hayan mas procesos mato a la impresora
 		msg_buffer.mtype = MTYPE;
 		sprintf (msg_buffer.mtext, "%s", "fin");
 		retval = msgsnd(msg_fin_id, &msg_buffer, sizeof(msg_buffer.mtext), 0);
-		retval = sem_op(sem_id, SEMAFORO_MUTEX_IMPRESORA, oper_libre, 1);
 		
 		retval = sem_op(sem_id, SEMAFORO_IMPRESORA_LIBRE, oper_libre, -1);		
+		
 		// libero recursos
 		retval = semctl(sem_id, 0, IPC_RMID);
 		if(retval != -1){
@@ -383,6 +408,7 @@ int main(){
 				retval = sem_op(sem_id, SEMAFORO_MUTEX_SHM, oper_shm, -1); // wait shm
 		        //zona critica
 		        cout << shared_memory << endl << endl;
+		        shared_memory = "";
 		        retval = sem_op(sem_id, SEMAFORO_MUTEX_SHM, oper_shm, 1); // signal shm
 
 		        // aviso que la impresora esta libre para que otro proceso
