@@ -15,7 +15,7 @@
 #include <unistd.h> // para esperar
 
 #define MTYPE 1   // id del los mensajes
-#define MSIZE 512 // longitud de la hilera del mensaje
+#define MSIZE 5120 // longitud de la hilera del mensaje
 #define PERM  0600  // permisos
 
 // constantes para identificar los semaforos
@@ -55,6 +55,7 @@ string generar_consulta(vector<string> x, vector<string> y, vector<string> z){
 	string from(" FROM ");
 	string where(" WHERE ");
 	string res = select + random_word(x) + from + random_word(y) + where + random_word(z);
+
 	return res;
 }
 
@@ -75,6 +76,7 @@ string convertir_consulta(char c[MSIZE]){
 	string tabla(consulta, pos_tabla+6, pos_cond-(pos_tabla+6));
 	
 	string res = string("Extraer de las tablas ")+tabla+", las columnas "+columna+" que cumplan con la condicion "+condicion;
+	
 	return res;
 }
 
@@ -243,7 +245,7 @@ int main(){
 	}
 
 	// inicializacion de la memoria compartida
-	int shm_id = shmget(IPC_PRIVATE, 512, PERM|IPC_CREAT|IPC_EXCL);
+	int shm_id = shmget(IPC_PRIVATE, MSIZE, PERM|IPC_CREAT|IPC_EXCL);
 	if(shm_id < 0){
 		cout << "No pude obtener la memoria compartida." << endl;
 		perror("RAZON");
@@ -255,8 +257,10 @@ int main(){
 	// struct para la cola de mensajes
 	struct msgbuf {
 		long mtype;
-		char mtext[MSIZE] = {};
+		char mtext[MSIZE];
 	} msg_buffer;
+	for(int i = 0; i<MSIZE; i++)
+		msg_buffer.mtext[i] = 0;
 
 	// struct para las operaciones en los semaforos.
 	struct sembuf oper_mandar[1], oper_shm[1], oper_contador[1], oper_libre[1],oper_impre[1];
@@ -285,6 +289,8 @@ int main(){
 			string nuevaConsulta = generar_consulta(palabrasx, palabrasy, palabrasz);
 			
 			// copio el string al arreglo de caracteres del struct
+			for(int i = 0; i<MSIZE; i++)
+				msg_buffer.mtext[i] = 0;
 			nuevaConsulta.copy( msg_buffer.mtext, nuevaConsulta.size() );
 			
 			// envio el mensaje para el hijo
@@ -314,6 +320,8 @@ int main(){
 
 				// leo el mensaje en el tope de la cola que fue el que mi
 				// proceso padre me dejo
+				for(int i = 0; i<MSIZE; i++)
+					msg_buffer.mtext[i] = 0;
 				retval = msgrcv(msg_id, &msg_buffer, sizeof(msg_buffer.mtext), MTYPE, IPC_NOWAIT);
 				if(retval == -1){
 					cout << "Error al leer de la cola de mensajes." << endl;
@@ -408,7 +416,9 @@ int main(){
 				retval = sem_op(sem_id, SEMAFORO_MUTEX_SHM, oper_shm, -1); // wait shm
 		        //zona critica
 		        cout << shared_memory << endl << endl;
-		        shared_memory = "";
+		        for(int i = 0; i < MSIZE; i++)
+		        	shared_memory[i] = 0;
+		        
 		        retval = sem_op(sem_id, SEMAFORO_MUTEX_SHM, oper_shm, 1); // signal shm
 
 		        // aviso que la impresora esta libre para que otro proceso
