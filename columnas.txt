@@ -5,3 +5,11 @@ ClassID, ProfID
 Salary
 Price, ScanCode
 NumberFile, typeFile
+Tipo, Categoria
+Longitud, Latitud
+Apellido
+Nota
+Clase
+Puesto
+Carga
+HoraInicio

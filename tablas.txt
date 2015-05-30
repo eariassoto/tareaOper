@@ -4,3 +4,12 @@ Classroom
 Student
 Professor
 Catalogue
+Curso
+Carrera
+Facultad
+Escuela
+Sector
+Sales
+Negocio
+Restaurante
+Comida

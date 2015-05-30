@@ -1,3 +1,10 @@
 name LIKE 'A%'
 a < 3200
 AVG(grades) > 7
+MAX() = 100
+MIN() = 0
+count(*) = 1
+SALARIO IS NULL
+Horas <= 12
+Apellido Like 'Sala_'
+Nota IS Not Null
